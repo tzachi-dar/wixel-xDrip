@@ -40,7 +40,8 @@ radio_channel: See description in radio_link.h.
 //                           SET THESE VARIABLES TO MEET YOUR NEEDS                                 //
 //                                   1 = TRUE       0 = FALSE                                       //
 //                                                                                                  //
-  static XDATA const char transmitter_id[] = "ABCDE";                                               //
+  static XDATA const char transmitter_id[] = "6AKMR";                                               //
+  static XDATA const char transmitter_id2[] = "63EWA";
 //                                                                                                  //
   static volatile BIT only_listen_for_my_transmitter = 1;                                           //
 // 1 is recommended                                                                                 //
@@ -79,6 +80,7 @@ static XDATA volatile int start_channel = 0;
 uint32 XDATA asciiToDexcomSrc(char *addr);
 uint32 XDATA getSrcValue(char srcVal);
 volatile uint32 dex_tx_id;
+volatile uint32 dex_tx_id2;
 #define NUM_CHANNELS        (4)
 static int8 fOffset[NUM_CHANNELS] = {0xCE,0xD5,0xE6,0xE5};
 static XDATA int8 defaultfOffset[NUM_CHANNELS] = {0xCE,0xD5,0xE6,0xE5};
@@ -249,8 +251,28 @@ uint32 getSrcValue(char srcVal) {
     return i & 0xFF;
 }
 void print_packet(Dexcom_packet* pPkt) {
+    int16 bridgeBattery; 
+    uint32 filtered;
+    uint8 txid;
     uartEnable();
-    printf("%lu %hhu %d", dex_num_decoder(pPkt->raw), pPkt->battery, adcConvertToMillivolts(adcRead(0)));
+
+    bridgeBattery = adcConvertToMillivolts(adcRead(0)) / 100;
+    if(bridgeBattery > 99) {
+        bridgeBattery = 99;
+    }
+    if(bridgeBattery <-99) {
+        bridgeBattery = -99;
+    }
+    
+    filtered = dex_num_decoder(pPkt->filtered) * 2 / 1000;
+    if(filtered > 999) {
+        filtered = 999;
+    }
+
+    txid = (pPkt->txId & 0xFC) >> 2;
+
+    //printf("%lu %hhu %d", dex_num_decoder(pPkt->raw), pPkt->battery, adcConvertToMillivolts(adcRead(0)));
+    printf("%lu %hhu %d %02hhu%03lu", dex_num_decoder(pPkt->raw), pPkt->battery, bridgeBattery, txid, filtered);
     uartDisable();
 }
 
@@ -434,7 +456,7 @@ int WaitForPacket(uint16 milliseconds, Dexcom_packet* pkt, uint8 channel) {
             fOffset[channel] += FREQEST;
             memcpy(pkt, packet, min8(len+2, sizeof(Dexcom_packet)));
             if(radioCrcPassed()) {
-                if(pkt->src_addr == dex_tx_id || dex_tx_id == 0 || only_listen_for_my_transmitter == 0) {
+                if(pkt->src_addr == dex_tx_id || pkt->src_addr == dex_tx_id2 || dex_tx_id == 0 || only_listen_for_my_transmitter == 0) {
                     pkt->txId -= channel;
                     radioQueueRxDoneWithPacket();
                     LED_YELLOW(0);
@@ -509,6 +531,8 @@ void main() {
     delayMs(1000);
     configBt();
     dex_tx_id= asciiToDexcomSrc(transmitter_id);
+    dex_tx_id2= asciiToDexcomSrc(transmitter_id2);
+
     delayMs(1000);
 
     radioQueueInit();
